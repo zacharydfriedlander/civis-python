@@ -1,5 +1,6 @@
-from __future__ import absolute_import
+from __future__ import absolute_import, generators
 import logging
+import time
 
 from civis import APIClient
 from civis.futures import CivisFuture
@@ -106,3 +107,43 @@ def run_template(id, arguments, JSONValue=False, client=None):
     else:
         file_ids = {o.name: o.object_id for o in outputs}
         return file_ids
+
+
+def get_run_logs(job_id, run_id, polling_interval=0.5, client=None):
+    """Fetch logs for a run of a job.
+
+    Parameters
+    ----------
+    job_id: int
+      The job being run.
+    run_id: int
+      The run id.
+    polling_interval: float, optional, default 0.5
+      The time, in seconds, to wait before checking for new logs.
+    client: :class:`civis.APIClient`, optional
+      If not provided, an :class:`civis.APIClient` object will be
+        created from the :envvar:`CIVIS_API_KEY`.
+
+    Yields
+    ------
+      log: Dict[str, str]
+      Log entries corresponding to the log entries for the job run.
+    """
+
+    if client is None:
+        client = APIClient()
+    run_status = client.jobs.get_runs(job_id, run_id).state
+    logs = client.jobs.list_runs_logs(job_id, run_id)
+    for log in logs:
+        yield log
+    last_log_id = None
+    if len(logs) > 0:
+        last_log_id = logs[-1].get('id')
+    while run_status not in ('succeeded', 'failed', 'cancelled'):
+        run_status = client.jobs.get_runs(job_id, run_id).state
+        logs = client.jobs.list_runs_logs(job_id, run_id, last_id=last_log_id)
+        for log in logs:
+            yield log
+        if len(logs) > 0:
+            last_log_id = logs[-1].get('id')
+        time.sleep(polling_interval)
